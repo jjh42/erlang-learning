@@ -4,6 +4,6 @@ erlang-learning
 Worked examples from the O'Reilly Erlang book
 http://goo.gl/OuV1v
 
-This code is not intended for use (although you're welcome to
-use it under MIT license terms) just a learning exercise.
+This code is not intended for use just a learning exercise.
 
+It is licensed under the terms of the MIT license (see LICENSE).
