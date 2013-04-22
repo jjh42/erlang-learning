@@ -17,17 +17,22 @@ unlock() ->
 	ok.
 
 init() ->
+	process_flag(trap_exit, true),
 	unlocked().
 
 unlocked() ->
 	receive
 		{lock, Pid} ->
-			Pid ! go,
 			locked(Pid)
 	end.
 
 locked(Pid) ->
+	% Link up in case the process crashes
+	link(Pid),
+	Pid ! go,
 	receive
-		{ unlock, Pid} ->
+		{unlock, Pid} ->
+			unlocked();
+		{'EXIT', Pid, _} ->
 			unlocked()
 	end.
