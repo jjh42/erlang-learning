@@ -26,6 +26,12 @@ setv(Key, Value) ->
     ok.
 
 getv(Key) ->
+    getv_impl(Key, 3).
+
+getv_impl(_Key, 0) ->
+    { error, no_nodes_responded };
+getv_impl(Key, NTries) ->
+    % Failure recovery - try again if a node fails to respond.
     distkt ! { self(), getv, Key },
     receive
         {Key, invalid_key } ->
@@ -34,6 +40,8 @@ getv(Key) ->
             Value;
         { error, ErrMsg } ->
             { error, ErrMsg}
+    after 100 ->
+        getv_impl(Key, NTries - 1)
     end.
 
 start_master() ->
