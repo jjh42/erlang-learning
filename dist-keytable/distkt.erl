@@ -15,7 +15,7 @@
 % There are still some cases I don't handle well such as:
 %  - If a slave being replicated from dies.
 %  - If a node stay alive but stops responding properly.
-%  - Any missed message will result in permanent inconsistentcy.
+%  - Any missed message will result in permanent inconsistency.
 
 
 -module(distkt).
