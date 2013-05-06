@@ -2,10 +2,20 @@
 % Keep a key-table in memory with multiple erl instances, one
 % master (single point of failure) and multiple slaves - robust
 % to a failure in the slaves.
+%
+% The master process mediates key retrieval by handing on key requests
+% to a randomly chosen slave. The client retries is a slave fails to respond
+% in a timely manner.
+%
+% To handle recovery, the master process monitors slaves to detect their termination.
+% When a new slave comes online it assigns another slave to replicate itself (while
+% still handling client requests). The new slave does not respond to queries until
+% replication has been achieved.
 
 -module(distkt).
 -export([start_master/0, start_slave/0, 
-setv/2, getv/1, key_master/1, slave_key_server/1, list_slaves/0]).
+setv/2, getv/1, key_master/1, slave_key_server/1, list_slaves/0,
+    replication_process/3]).
 
 % Client functions - set and get key values
 list_slaves() ->
@@ -26,7 +36,7 @@ setv(Key, Value) ->
     ok.
 
 getv(Key) ->
-    getv_impl(Key, 3).
+    getv_impl(Key, 5).
 
 getv_impl(_Key, 0) ->
     { error, no_nodes_responded };
@@ -65,6 +75,7 @@ key_master([]) ->
             Pid ! { error, noslaves },
             key_master([]);
         { slave_connect, Pid } ->
+            Pid ! { replication_complete },
             key_master(slave_connected([], Pid));
         { Pid, list_slaves } ->
             Pid ! { list_slaves, [] },
@@ -82,6 +93,7 @@ key_master(Nodes) ->
             set_slave_key_value(Nodes, Key, Value),
             key_master(Nodes);
         { slave_connect, Pid } ->
+            choice(Nodes) ! { replicate, Pid },
             key_master(slave_connected(Nodes, Pid));
         { Pid, list_slaves } ->
             Pid ! { list_slaves, Nodes },
@@ -91,7 +103,8 @@ key_master(Nodes) ->
     end.
 
 down_slave(Nodes, DownPid, Reason) ->
-    io:format("slaves ~s down for reason ~s~n", [io_lib:write(DownPid), Reason]),
+    io:format("slaves ~s down for reason ~s~n", [io_lib:write(DownPid),
+                        io_lib:write(Reason)]),
     lists:delete(DownPid, Nodes).
 
 
@@ -105,21 +118,51 @@ set_slave_key_value([ Node | Tail], Key, Value) ->
 % Slave routines
 start_slave() ->
     master_process() ! { slave_connect, self() },
-    Table = ets:new(keytable, [private]),
-    slave_key_server(Table).
+    Table = ets:new(keytable, [protected]),
+    slave_key_server_replication(Table).
 
 master_process() ->
     % Figure out the master process
     { distkt, list_to_atom(string:join(["master", "@", net_adm:localhost()], ""))}.
 
+slave_key_server_replication(Table) ->
+    % At the beginning we need to get a replica of someone else's table before
+    % we respond to queries (in order to minimize inconsistencies).
+    receive
+        { _, getv, _} ->
+            % Drop getv and let some other slave handle it
+            slave_key_server_replication(Table);     
+        { setv, Key, Value } ->
+            slave_set_key_value(Table, Key, Value),
+            slave_key_server_replication(Table);
+        { replication_complete } ->
+            % We can go into normal operation.
+            slave_key_server(Table)
+    end.
+    
 slave_key_server(Table) ->
     receive
         { ReturnPid, getv, Key} ->
             slave_get_value(Table, ReturnPid, Key);     
         { setv, Key, Value } ->
-            slave_set_key_value(Table, Key, Value)
+            slave_set_key_value(Table, Key, Value);
+        { replicate, SlavePid } ->
+            % Handle replicating to a new slave
+            handle_replication_request( Table, SlavePid)
     end,
     slave_key_server(Table).
+
+
+handle_replication_request(Table, SlavePid ) ->
+    First = ets:first(Table),
+    spawn(?MODULE, replication_process, [SlavePid, Table, First]).
+
+replication_process(SlavePid, _Table, '$end_of_table') ->
+    SlavePid ! { replication_complete };
+replication_process(SlavePid, Table, Key) ->
+    [{Key, Value}] = ets:lookup(Table, Key),
+    SlavePid ! { setv, Key, Value },
+    replication_process(SlavePid, Table, ets:next(Table, Key)).
 
 slave_get_value(Table, ReturnPid, Key) ->
     reply_to_lookup(ReturnPid, Key, ets:lookup(Table, Key)).
