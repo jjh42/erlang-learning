@@ -41,6 +41,7 @@ getv_impl(Key, NTries) ->
         { error, ErrMsg } ->
             { error, ErrMsg}
     after 100 ->
+        io:format("Warning: node never responded.~n"),
         getv_impl(Key, NTries - 1)
     end.
 
@@ -58,7 +59,7 @@ key_master([]) ->
             Pid ! { error, noslaves },
             key_master([]);
         { slave_connect, Pid } ->
-            io:format('slave ~s connected~n', [io_lib:write(Pid)]),
+            io:format("slave ~s connected~n", [io_lib:write(Pid)]),
             key_master([ Pid ]);
         { Pid, list_slaves } ->
             Pid ! { list_slaves, [] },
