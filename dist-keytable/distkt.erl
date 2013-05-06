@@ -11,6 +11,12 @@
 % When a new slave comes online it assigns another slave to replicate itself (while
 % still handling client requests). The new slave does not respond to queries until
 % replication has been achieved.
+%
+% There are still some cases I don't handle well such as:
+%  - If a slave being replicated from dies.
+%  - If a node stay alive but stops responding properly.
+%  - Any missed message will result in permanent inconsistentcy.
+
 
 -module(distkt).
 -export([start_master/0, start_slave/0, 
