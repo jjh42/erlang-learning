@@ -49,6 +49,12 @@ start_master() ->
 	Pid = spawn(?MODULE, key_master, [[]]),
 	register(distkt, Pid).
 
+slave_connected(Nodes, Pid) ->
+    % Called when a new slave connects.
+    erlang:monitor(process, Pid),
+    io:format("slave ~s connected~n", [io_lib:write(Pid)]),
+    [ Pid | Nodes].
+
 key_master([]) ->
     % No slaves are connected
     receive
@@ -59,8 +65,7 @@ key_master([]) ->
             Pid ! { error, noslaves },
             key_master([]);
         { slave_connect, Pid } ->
-            io:format("slave ~s connected~n", [io_lib:write(Pid)]),
-            key_master([ Pid ]);
+            key_master(slave_connected([], Pid));
         { Pid, list_slaves } ->
             Pid ! { list_slaves, [] },
             key_master([])
@@ -77,12 +82,18 @@ key_master(Nodes) ->
             set_slave_key_value(Nodes, Key, Value),
             key_master(Nodes);
         { slave_connect, Pid } ->
-            io:format('slave ~s connected~n', [io_lib:write(Pid)]),
-            key_master([ Pid | Nodes ]);
+            key_master(slave_connected(Nodes, Pid));
         { Pid, list_slaves } ->
             Pid ! { list_slaves, Nodes },
-            key_master(Nodes)
+            key_master(Nodes);
+        {'DOWN', _Ref, process, DownPid, Reason} ->
+            key_master(down_slave(Nodes, DownPid, Reason))
     end.
+
+down_slave(Nodes, DownPid, Reason) ->
+    io:format("slaves ~s down for reason ~s~n", [io_lib:write(DownPid), Reason]),
+    lists:delete(DownPid, Nodes).
+
 
 set_slave_key_value([], _Key, _Value) ->
     ok;
